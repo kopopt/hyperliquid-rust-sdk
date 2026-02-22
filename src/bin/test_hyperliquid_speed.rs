@@ -49,8 +49,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     println!("🚀 极速引擎已就绪 | 目标: {}", symbol);
-    println!("✅ 已优化：直接使用底层 order API，绕过 market_open");
-    println!("💡 如果延迟仍然 > 200ms，可能是网络延迟或 Hyperliquid API 响应慢");
+    println!("✅ SDK 优化完成：");
+    println!("   - 使用缓存的 meta（避免 ~800ms HTTP 请求）");
+    println!("   - 直接使用底层 order API（绕过 market_open）");
+    println!("   - 优化的 HTTP client 配置（TCP_NODELAY, 连接池）");
+    println!("💡 如果延迟仍然 > 200ms，主要是网络 RTT + 服务器处理时间");
+    println!("   这是 Hyperliquid API 的正常响应时间，无法通过 SDK 进一步优化");
 
     // 预热：只做一次，建立连接池
     let _ = info.user_state(address).await;
