@@ -2,11 +2,17 @@ use alloy::signers::local::PrivateKeySigner;
 use hyperliquid_rust_sdk::{
     BaseUrl, ExchangeClient, InfoClient, 
     ExchangeResponseStatus, ExchangeDataStatus,
-    MarketOrderParams, ClientCancelRequest,
+    ClientCancelRequest, ClientLimit, ClientOrder, ClientOrderRequest,
 };
 use std::env;
 use std::time::{Instant, Duration};
 use tokio::time::sleep;
+
+// Helper function to round to decimals (same as SDK internal function)
+fn round_to_decimals(value: f64, decimals: u32) -> f64 {
+    let factor = 10f64.powi(decimals as i32);
+    (value * factor).round() / factor
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,8 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     println!("🚀 极速引擎已就绪 | 目标: {}", symbol);
-    println!("⚠️  如果延迟 > 200ms，可能是 market_open 内部做了额外请求");
-    println!("💡 建议：使用底层 order API 或检查 SDK 源码");
+    println!("✅ 已优化：直接使用底层 order API，绕过 market_open");
+    println!("💡 如果延迟仍然 > 200ms，可能是网络延迟或 Hyperliquid API 响应慢");
 
     // 预热：只做一次，建立连接池
     let _ = info.user_state(address).await;
@@ -46,23 +52,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let buy_px = (mid_price * 1.05).round() as f64;
     println!("预热完成 | 当前价格: ${:.2} | 下单价格: ${:.2}", mid_price, buy_px);
 
+    // 获取资产元数据（用于格式化数量）
+    let asset_meta = exchange.meta.universe
+        .iter()
+        .find(|a| a.name == symbol)
+        .ok_or("Asset not found")?;
+    let sz_decimals = asset_meta.sz_decimals;
+
     for i in 1..=5 {
-        // 关键优化：只测量下单请求的延迟
+        // 关键优化：直接使用底层 order API，绕过 market_open 和 calculate_slippage_price
         let start = Instant::now();
 
-        let order_params = MarketOrderParams {
-            asset: symbol,
+        // 直接构建订单请求，避免 market_open 内部的额外处理
+        let order = ClientOrderRequest {
+            asset: symbol.to_string(),
             is_buy: true,
-            sz: 0.01,
-            px: Some(buy_px),
-            slippage: None,
+            reduce_only: false,
+            limit_px: buy_px,
+            sz: round_to_decimals(0.01, sz_decimals),
             cloid: None,
-            wallet: None,
+            order_type: ClientOrder::Limit(ClientLimit {
+                tif: "Ioc".to_string(),
+            }),
         };
         
-        // 注意：market_open 内部可能做了额外请求（获取价格、计算滑点等）
-        // 如果延迟还是高，可能需要直接使用底层 order API
-        let res = exchange.market_open(order_params).await;
+        // 直接调用 order 方法，这是最快的路径
+        let res = exchange.order(order, None).await;
 
         let ms = start.elapsed().as_secs_f64() * 1000.0;
 
