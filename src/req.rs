@@ -53,6 +53,11 @@ async fn parse_response(response: Response) -> Result<String> {
 
 impl HttpClient {
     pub async fn post(&self, url_path: &'static str, data: String) -> Result<String> {
+        let perf_profile = std::env::var("HL_PERF_PROFILE").is_ok();
+        let http_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+
+        // Step 1: Build request
+        let step1_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let full_url = format!("{}{url_path}", self.base_url);
         let request = self
             .client
@@ -61,12 +66,33 @@ impl HttpClient {
             .body(data)
             .build()
             .map_err(|e| Error::GenericRequest(e.to_string()))?;
+        if let Some(start) = step1_start {
+            log::debug!("[PERF] HTTP Step 1 - Build request: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Step 2: Execute request (network round trip + server processing)
+        let step2_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let result = self
             .client
             .execute(request)
             .await
             .map_err(|e| Error::GenericRequest(e.to_string()))?;
-        parse_response(result).await
+        if let Some(start) = step2_start {
+            let step2_time = start.elapsed().as_secs_f64() * 1000.0;
+            log::debug!("[PERF] HTTP Step 2 - Execute (network + server): {:.2}ms", step2_time);
+        }
+
+        // Step 3: Parse response
+        let step3_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        let result = parse_response(result).await;
+        if let Some(start) = step3_start {
+            log::debug!("[PERF] HTTP Step 3 - Parse response: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        if let Some(start) = http_start {
+            log::debug!("[PERF] HTTP total time: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        
+        result
     }
 
     pub fn is_mainnet(&self) -> bool {

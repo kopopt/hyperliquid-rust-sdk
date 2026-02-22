@@ -145,29 +145,54 @@ impl ExchangeClient {
         signature: Signature,
         nonce: u64,
     ) -> Result<ExchangeResponseStatus> {
-        // let signature = ExchangeSignature {
-        //     r: signature.r(),
-        //     s: signature.s(),
-        //     v: 27 + signature.v() as u64,
-        // };
+        let perf_profile = std::env::var("HL_PERF_PROFILE").is_ok();
+        let post_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
 
+        // Step 1: Build payload
+        let step1_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let exchange_payload = ExchangePayload {
             action,
             signature,
             nonce,
             vault_address: self.vault_address,
         };
+        if let Some(start) = step1_start {
+            log::debug!("[PERF] Post Step 1 - Build payload: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Step 2: Serialize payload
+        let step2_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let res = serde_json::to_string(&exchange_payload)
             .map_err(|e| Error::JsonParse(e.to_string()))?;
+        if let Some(start) = step2_start {
+            log::debug!("[PERF] Post Step 2 - Serialize payload: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
         debug!("Sending request {res:?}");
 
+        // Step 3: HTTP request (network + server processing)
+        let step3_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let output = &self
             .http_client
             .post("/exchange", res)
             .await
             .map_err(|e| Error::JsonParse(e.to_string()))?;
+        if let Some(start) = step3_start {
+            let step3_time = start.elapsed().as_secs_f64() * 1000.0;
+            log::debug!("[PERF] Post Step 3 - HTTP request (network + server): {:.2}ms", step3_time);
+        }
         debug!("Response: {output}");
-        serde_json::from_str(output).map_err(|e| Error::JsonParse(e.to_string()))
+
+        // Step 4: Parse response
+        let step4_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        let result = serde_json::from_str(output).map_err(|e| Error::JsonParse(e.to_string()));
+        if let Some(start) = step4_start {
+            log::debug!("[PERF] Post Step 4 - Parse response: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        if let Some(start) = post_start {
+            log::debug!("[PERF] Post total time: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+        
+        result
     }
 
     pub async fn enable_big_blocks(
@@ -486,26 +511,73 @@ impl ExchangeClient {
         orders: Vec<ClientOrderRequest>,
         wallet: Option<&PrivateKeySigner>,
     ) -> Result<ExchangeResponseStatus> {
+        // Performance profiling (controlled by HL_PERF_PROFILE env var)
+        let perf_profile = std::env::var("HL_PERF_PROFILE").is_ok();
+        let total_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        
         let wallet = wallet.unwrap_or(&self.wallet);
+        
+        // Step 1: Generate nonce
+        let step1_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let timestamp = next_nonce();
+        if let Some(start) = step1_start {
+            log::debug!("[PERF] Step 1 - Generate nonce: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
 
+        // Step 2: Convert orders
+        let step2_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let mut transformed_orders = Vec::new();
-
         for order in orders {
             transformed_orders.push(order.convert(&self.coin_to_asset)?);
         }
+        if let Some(start) = step2_start {
+            log::debug!("[PERF] Step 2 - Convert orders: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
 
+        // Step 3: Build action
+        let step3_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let action = Actions::Order(BulkOrder {
             orders: transformed_orders,
             grouping: "na".to_string(),
             builder: None,
         });
-        let connection_id = action.hash(timestamp, self.vault_address)?;
-        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
+        if let Some(start) = step3_start {
+            log::debug!("[PERF] Step 3 - Build action: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
 
+        // Step 4: Calculate connection_id (hash)
+        let step4_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        let connection_id = action.hash(timestamp, self.vault_address)?;
+        if let Some(start) = step4_start {
+            log::debug!("[PERF] Step 4 - Calculate hash: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Step 5: Serialize action to JSON
+        let step5_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
+        if let Some(start) = step5_start {
+            log::debug!("[PERF] Step 5 - Serialize to JSON: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Step 6: Sign
+        let step6_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let is_mainnet = self.http_client.is_mainnet();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
-        self.post(action, signature, timestamp).await
+        if let Some(start) = step6_start {
+            log::debug!("[PERF] Step 6 - Sign: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+        }
+
+        // Step 7: Post (includes HTTP request and server processing)
+        let step7_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        let result = self.post(action, signature, timestamp).await;
+        if let (Some(start), Some(total)) = (step7_start, total_start) {
+            let step7_time = start.elapsed().as_secs_f64() * 1000.0;
+            let total_time = total.elapsed().as_secs_f64() * 1000.0;
+            log::debug!("[PERF] Step 7 - HTTP request + server processing: {:.2}ms", step7_time);
+            log::debug!("[PERF] Total time: {:.2}ms", total_time);
+        }
+        
+        result
     }
 
     pub async fn bulk_order_with_builder(
