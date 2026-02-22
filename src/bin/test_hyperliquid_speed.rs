@@ -29,12 +29,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     //     .pool_idle_timeout(Duration::from_secs(300))
     //     .build()?;
 
-    // 使用 SDK 默认 client（可能更稳定）
-    let info = InfoClient::new(None, Some(BaseUrl::Mainnet)).await?;
+    // 创建优化的 HTTP client 以减少延迟
+    let optimized_client = reqwest::Client::builder()
+        .tcp_nodelay(true)  // 禁用 Nagle 算法，减少延迟
+        .pool_idle_timeout(std::time::Duration::from_secs(90))  // 保持连接池活跃
+        .pool_max_idle_per_host(10)  // 增加每个主机的连接池大小
+        .timeout(std::time::Duration::from_secs(30))  // 设置超时
+        .build()?;
+    
+    let info = InfoClient::new(Some(optimized_client.clone()), Some(BaseUrl::Mainnet)).await?;
     let meta = info.meta().await?;
     
     let exchange = ExchangeClient::new(
-        None, 
+        Some(optimized_client), 
         wallet, 
         Some(BaseUrl::Mainnet), 
         Some(meta), 
@@ -61,9 +68,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for i in 1..=5 {
         // 关键优化：直接使用底层 order API，绕过 market_open 和 calculate_slippage_price
-        let start = Instant::now();
-
-        // 直接构建订单请求，避免 market_open 内部的额外处理
+        let total_start = Instant::now();
+        
+        // 步骤 1: 构建订单请求（应该很快，<1ms）
+        let build_start = Instant::now();
         let order = ClientOrderRequest {
             asset: symbol.to_string(),
             is_buy: true,
@@ -75,30 +83,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 tif: "Ioc".to_string(),
             }),
         };
+        let build_time = build_start.elapsed().as_secs_f64() * 1000.0;
         
-        // 直接调用 order 方法，这是最快的路径
+        // 步骤 2: 调用 order 方法（这是实际的网络请求）
+        let order_start = Instant::now();
         let res = exchange.order(order, None).await;
+        let order_time = order_start.elapsed().as_secs_f64() * 1000.0;
 
-        let ms = start.elapsed().as_secs_f64() * 1000.0;
+        let total_time = total_start.elapsed().as_secs_f64() * 1000.0;
 
         match res {
             Ok(ExchangeResponseStatus::Ok(data)) => {
                 if let Some(status) = data.data.as_ref().and_then(|d| d.statuses.first()) {
                     match status {
                         ExchangeDataStatus::Filled(f) => {
-                            println!("轮次 {}: ⏱️ {:.2} ms | [瞬间成交] OID: {}", i, ms, f.oid);
+                            println!("轮次 {}: 总延迟 {:.2} ms (构建: {:.2} ms, 下单: {:.2} ms) | [瞬间成交] OID: {}", 
+                                i, total_time, build_time, order_time, f.oid);
                         },
                         ExchangeDataStatus::Resting(r) => {
-                            println!("轮次 {}: ⏱️ {:.2} ms | [挂单成功] OID: {}", i, ms, r.oid);
+                            println!("轮次 {}: 总延迟 {:.2} ms (构建: {:.2} ms, 下单: {:.2} ms) | [挂单成功] OID: {}", 
+                                i, total_time, build_time, order_time, r.oid);
                             // 仅测试用：挂单成功后撤单
                             let _ = exchange.cancel(ClientCancelRequest { asset: symbol.to_string(), oid: r.oid }, None).await;
                         },
-                        _ => println!("轮次 {}: ⏱️ {:.2} ms | 状态: {:?}", i, ms, status),
+                        _ => println!("轮次 {}: 总延迟 {:.2} ms (构建: {:.2} ms, 下单: {:.2} ms) | 状态: {:?}", 
+                            i, total_time, build_time, order_time, status),
                     }
                 }
             }
-            Err(e) => println!("轮次 {}: ❌ 异常 - {:?}", i, e),
-            _ => println!("轮次 {}: ❌ 非预期回执", i),
+            Err(e) => println!("轮次 {}: ❌ 异常 - {:?} (总延迟: {:.2} ms)", i, e, total_time),
+            _ => println!("轮次 {}: ❌ 非预期回执 (总延迟: {:.2} ms)", i, total_time),
         }
         sleep(Duration::from_millis(1000)).await;
     }
