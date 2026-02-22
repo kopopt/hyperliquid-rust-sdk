@@ -67,7 +67,8 @@ impl HttpClient {
             .build()
             .map_err(|e| Error::GenericRequest(e.to_string()))?;
         if let Some(start) = step1_start {
-            log::debug!("[PERF] HTTP Step 1 - Build request: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] HTTP Step 1 - Build request: {:.2}ms", time);
         }
 
         // Step 2: Execute request (network round trip + server processing)
@@ -79,17 +80,19 @@ impl HttpClient {
             .map_err(|e| Error::GenericRequest(e.to_string()))?;
         if let Some(start) = step2_start {
             let step2_time = start.elapsed().as_secs_f64() * 1000.0;
-            log::debug!("[PERF] HTTP Step 2 - Execute (network + server): {:.2}ms", step2_time);
+            eprintln!("[PERF] HTTP Step 2 - Execute (network + server): {:.2}ms", step2_time);
         }
 
         // Step 3: Parse response
         let step3_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let result = parse_response(result).await;
         if let Some(start) = step3_start {
-            log::debug!("[PERF] HTTP Step 3 - Parse response: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] HTTP Step 3 - Parse response: {:.2}ms", time);
         }
         if let Some(start) = http_start {
-            log::debug!("[PERF] HTTP total time: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] HTTP total time: {:.2}ms", time);
         }
         
         result

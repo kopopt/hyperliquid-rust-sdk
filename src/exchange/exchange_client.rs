@@ -147,6 +147,9 @@ impl ExchangeClient {
     ) -> Result<ExchangeResponseStatus> {
         let perf_profile = std::env::var("HL_PERF_PROFILE").is_ok();
         let post_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        if perf_profile {
+            eprintln!("[PERF] --- post 方法开始 ---");
+        }
 
         // Step 1: Build payload
         let step1_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
@@ -157,7 +160,8 @@ impl ExchangeClient {
             vault_address: self.vault_address,
         };
         if let Some(start) = step1_start {
-            log::debug!("[PERF] Post Step 1 - Build payload: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Post Step 1 - Build payload: {:.2}ms", time);
         }
 
         // Step 2: Serialize payload
@@ -165,7 +169,8 @@ impl ExchangeClient {
         let res = serde_json::to_string(&exchange_payload)
             .map_err(|e| Error::JsonParse(e.to_string()))?;
         if let Some(start) = step2_start {
-            log::debug!("[PERF] Post Step 2 - Serialize payload: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Post Step 2 - Serialize payload: {:.2}ms", time);
         }
         debug!("Sending request {res:?}");
 
@@ -178,7 +183,7 @@ impl ExchangeClient {
             .map_err(|e| Error::JsonParse(e.to_string()))?;
         if let Some(start) = step3_start {
             let step3_time = start.elapsed().as_secs_f64() * 1000.0;
-            log::debug!("[PERF] Post Step 3 - HTTP request (network + server): {:.2}ms", step3_time);
+            eprintln!("[PERF] Post Step 3 - HTTP request (network + server): {:.2}ms", step3_time);
         }
         debug!("Response: {output}");
 
@@ -186,10 +191,12 @@ impl ExchangeClient {
         let step4_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let result = serde_json::from_str(output).map_err(|e| Error::JsonParse(e.to_string()));
         if let Some(start) = step4_start {
-            log::debug!("[PERF] Post Step 4 - Parse response: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Post Step 4 - Parse response: {:.2}ms", time);
         }
         if let Some(start) = post_start {
-            log::debug!("[PERF] Post total time: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] --- post 方法总计: {:.2}ms ---", time);
         }
         
         result
@@ -514,6 +521,9 @@ impl ExchangeClient {
         // Performance profiling (controlled by HL_PERF_PROFILE env var)
         let perf_profile = std::env::var("HL_PERF_PROFILE").is_ok();
         let total_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
+        if perf_profile {
+            eprintln!("[PERF] ========== bulk_order 开始 ==========");
+        }
         
         let wallet = wallet.unwrap_or(&self.wallet);
         
@@ -521,7 +531,8 @@ impl ExchangeClient {
         let step1_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let timestamp = next_nonce();
         if let Some(start) = step1_start {
-            log::debug!("[PERF] Step 1 - Generate nonce: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Step 1 - Generate nonce: {:.2}ms", time);
         }
 
         // Step 2: Convert orders
@@ -531,7 +542,8 @@ impl ExchangeClient {
             transformed_orders.push(order.convert(&self.coin_to_asset)?);
         }
         if let Some(start) = step2_start {
-            log::debug!("[PERF] Step 2 - Convert orders: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Step 2 - Convert orders: {:.2}ms", time);
         }
 
         // Step 3: Build action
@@ -542,21 +554,24 @@ impl ExchangeClient {
             builder: None,
         });
         if let Some(start) = step3_start {
-            log::debug!("[PERF] Step 3 - Build action: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Step 3 - Build action: {:.2}ms", time);
         }
 
         // Step 4: Calculate connection_id (hash)
         let step4_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let connection_id = action.hash(timestamp, self.vault_address)?;
         if let Some(start) = step4_start {
-            log::debug!("[PERF] Step 4 - Calculate hash: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Step 4 - Calculate hash: {:.2}ms", time);
         }
 
         // Step 5: Serialize action to JSON
         let step5_start = if perf_profile { Some(std::time::Instant::now()) } else { None };
         let action = serde_json::to_value(&action).map_err(|e| Error::JsonParse(e.to_string()))?;
         if let Some(start) = step5_start {
-            log::debug!("[PERF] Step 5 - Serialize to JSON: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Step 5 - Serialize to JSON: {:.2}ms", time);
         }
 
         // Step 6: Sign
@@ -564,7 +579,8 @@ impl ExchangeClient {
         let is_mainnet = self.http_client.is_mainnet();
         let signature = sign_l1_action(wallet, connection_id, is_mainnet)?;
         if let Some(start) = step6_start {
-            log::debug!("[PERF] Step 6 - Sign: {:.2}ms", start.elapsed().as_secs_f64() * 1000.0);
+            let time = start.elapsed().as_secs_f64() * 1000.0;
+            eprintln!("[PERF] Step 6 - Sign: {:.2}ms", time);
         }
 
         // Step 7: Post (includes HTTP request and server processing)
@@ -573,8 +589,8 @@ impl ExchangeClient {
         if let (Some(start), Some(total)) = (step7_start, total_start) {
             let step7_time = start.elapsed().as_secs_f64() * 1000.0;
             let total_time = total.elapsed().as_secs_f64() * 1000.0;
-            log::debug!("[PERF] Step 7 - HTTP request + server processing: {:.2}ms", step7_time);
-            log::debug!("[PERF] Total time: {:.2}ms", total_time);
+            eprintln!("[PERF] Step 7 - HTTP request + server processing: {:.2}ms", step7_time);
+            eprintln!("[PERF] ========== bulk_order 总计: {:.2}ms ==========", total_time);
         }
         
         result
